@@ -1,0 +1,1106 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+  <link rel="icon" type="image/png" href="./icon.png">
+  <link rel="apple-touch-icon" href="./icon.png">
+  <link rel="manifest" href="./manifest.json">
+  <meta name="theme-color" content="#020617">
+
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+          .then(registration => {
+            console.log('Luminous SW registered with scope:', registration.scope);
+          })
+          .catch(error => {
+            console.error('Luminous SW registration failed:', error);
+          });
+      });
+    }
+  </script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Luminous Insight - Integrated Analysis Platform</title>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@18.2.0",
+        "react-dom": "https://esm.sh/react-dom@18.2.0",
+        "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+        "zustand": "https://esm.sh/zustand@4.5.2?external=react",
+        "zustand/middleware": "https://esm.sh/zustand@4.5.2/middleware?external=react",
+        "framer-motion": "https://esm.sh/framer-motion@11.0.8?external=react,react-dom"
+      }
+    }
+  </script>
+
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: { colors: { deepsea: { 900: '#020617', 800: '#0f172a', 700: '#1e293b', glow: '#38bdf8' } }, fontFamily: { sans: ['Inter', 'sans-serif'], mono: ['JetBrains Mono', 'monospace'] } } }
+    }
+  </script>
+
+  <link rel="stylesheet" href="index.css">
+</head>
+
+<body>
+  <div id="root"></div>
+  <script type="text/babel" data-type="module">
+    import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+    import { createRoot } from 'react-dom/client';
+    import { motion, AnimatePresence } from 'framer-motion';
+    import { useLuminousStore } from './store.js?v=2';
+    import { ViewShell, GlobalNavigation, GlobalCommandPalette, GlobalToast, GlobalQuestHUD, GlobalEffects, THEME } from './globals.js?v=2';
+
+    const h = React.createElement;
+
+    // --- Global Constants & Visuals ---
+    const slowTransition = { duration: 1.5, ease: [0.16, 1, 0.3, 1] };
+
+    // --- Global Components Defined Locally to ensure stability ---
+    function GlobalConfirmation() {
+      const confirmation = useLuminousStore(s => s.confirmation);
+      const closeConfirmation = useLuminousStore(s => s.closeConfirmation);
+
+      return h(AnimatePresence, null, confirmation && h(motion.div, {
+        initial: { opacity: 0 },
+        animate: { opacity: 1 },
+        exit: { opacity: 0 },
+        className: "fixed inset-0 z-[20000] flex items-center justify-center p-8 bg-slate-950/80 backdrop-blur-md",
+        onClick: closeConfirmation
+      }, [
+        h(motion.div, {
+          initial: { scale: 0.9, opacity: 0, y: 20 },
+          animate: { scale: 1, opacity: 1, y: 0 },
+          exit: { scale: 0.9, opacity: 0, y: 20 },
+          onClick: e => e.stopPropagation(),
+          className: "w-full max-w-md bg-slate-900 border border-white/10 rounded-[2.5rem] p-10 shadow-2xl text-center relative overflow-hidden"
+        }, [
+          h('div', { className: "absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-red-500 via-fuchsia-500 to-cyan-500" }),
+          h('div', { className: "w-20 h-20 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-6 border border-red-500/20 text-red-500 text-3xl" }, "⚠️"),
+          h('h2', { className: `${THEME.h2} mb-4 uppercase tracking-tight` }, "Confirmation"),
+          h('p', { className: "text-slate-400 mb-10 leading-relaxed" }, confirmation.message),
+          h('div', { className: "flex flex-col gap-3" }, [
+            h('button', {
+              onClick: () => { confirmation.onConfirm(); closeConfirmation(); },
+              className: "w-full py-4 bg-red-600/20 border border-red-500/50 text-red-100 font-bold uppercase tracking-widest text-xs rounded-2xl hover:bg-red-600 transition-all cursor-pointer shadow-lg shadow-red-500/10"
+            }, "Confirm Action"),
+            h('button', {
+              onClick: closeConfirmation,
+              className: "w-full py-4 bg-white/5 text-slate-400 font-bold uppercase tracking-widest text-xs rounded-2xl hover:bg-white/10 transition-all cursor-pointer"
+            }, "Cancel")
+          ])
+        ])
+      ]));
+    }
+
+    // --- Views ---
+    function StoriesView() {
+      const { stories, activeStoryId, addStory, deleteStory, setActiveStory, restoreStoryEvents, requestConfirmation } = useLuminousStore();
+      const [newTitle, setNewTitle] = useState('');
+      const [newContent, setNewContent] = useState('');
+      const handleAdd = () => { if (newTitle && newContent) { addStory({ title: newTitle, content: newContent }); setNewTitle(''); setNewContent(''); } };
+
+      return h('div', { className: "flex flex-col gap-8 text-left" }, [
+        h('div', { className: "bg-slate-950/40 p-6 rounded-[2rem] border border-white/5" }, [
+          h('h3', { className: "text-xs font-bold text-cyan-500 uppercase tracking-widest mb-4" }, "🆕 Create New Prophecy"),
+          h('div', { className: "flex flex-col gap-4" }, [
+            h('input', { type: "text", placeholder: "預言のタイトル...", value: newTitle, onChange: e => setNewTitle(e.target.value), className: "bg-slate-950/60 border border-white/5 p-4 rounded-xl text-sm outline-none" }),
+            h('textarea', { placeholder: "学習シナリオを入力...", value: newContent, onChange: e => setNewContent(e.target.value), className: "bg-slate-950/60 border border-white/5 p-4 rounded-xl text-sm h-32 outline-none resize-none" }),
+            h('button', { onClick: handleAdd, className: `${THEME.btnBase} ${THEME.btnCyan}` }, "Save Story")
+          ])
+        ]),
+        h('div', { className: "grid grid-cols-2 gap-6" }, stories.slice().reverse().map(s => {
+          const isActive = activeStoryId === s.id;
+          return h('div', { key: s.id, className: `p-6 rounded-[2.2rem] border transition-all flex flex-col justify-between min-h-[220px] ${s.isCleared ? 'border-amber-500/40 bg-amber-950/10' : (isActive ? 'border-cyan-500 bg-cyan-950/20 shadow-xl' : 'border-white/5 bg-slate-900/60')}` }, [
+            h('div', null, [
+              h('h4', { className: "font-bold text-lg text-slate-100" }, s.title),
+              h('p', { className: "text-xs text-slate-400 mt-2 line-clamp-4 font-sans leading-relaxed whitespace-pre-wrap" }, s.content)
+            ]),
+            h('div', { className: "flex items-center gap-3 mt-4 pt-4 border-t border-white/5" }, [
+              s.isCleared ? h('button', { onClick: () => restoreStoryEvents(s.id), className: "flex-1 bg-amber-500/20 text-amber-300 text-[10px] font-bold py-2.5 rounded-xl border border-amber-500/30" }, "Restore Snapshot") : h('button', { onClick: () => setActiveStory(s.id), className: `flex-1 text-[10px] font-bold py-2.5 rounded-xl border ${isActive ? 'bg-cyan-500 text-slate-950' : 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30'}` }, isActive ? 'Questing...' : 'Start Quest'),
+              h('button', { onClick: () => requestConfirmation({ message: `物語「${s.title}」を抹消しますか？`, onConfirm: () => deleteStory(s.id) }), className: "p-3 bg-slate-950 rounded-xl hover:text-red-500 transition-colors" }, "🗑️")
+            ])
+          ]);
+        }))
+      ]);
+    }
+
+    function ForgeView() {
+      const { categories, accounts, visualTypes, addAccount, addCategory, showToast, addVisualType, resetToDefault, requestConfirmation } = useLuminousStore();
+      const [accName, setAccName] = useState('');
+      const [accCatId, setAccCatId] = useState('');
+      const [accVisId, setAccVisId] = useState(visualTypes[0]?.id || '');
+
+      const [spiritName, setSpiritName] = useState('');
+      const [spiritIcon, setSpiritIcon] = useState('');
+      const [spiritDesc, setSpiritDesc] = useState('');
+
+      const [catName, setCatName] = useState('');
+      const [catParentId, setCatParentId] = useState('');
+
+      const flattenedCats = [];
+      const recurseCats = (pId, depth) => {
+        categories.filter(c => c.parentId === pId || (!pId && !c.parentId)).sort((a, b) => (a.order || 0) - (b.order || 0)).forEach(c => {
+          flattenedCats.push({ ...c, depth });
+          recurseCats(c.id, depth + 1);
+        });
+      };
+      recurseCats(null, 0);
+
+      return h('div', { className: "flex flex-col gap-12 text-left pb-32" }, [
+        h('div', { className: "grid grid-cols-1 lg:grid-cols-2 gap-8" }, [
+          h('div', { className: THEME.panelCyan }, [
+            h('h3', { className: `${THEME.labelCyan} mb-6` }, "🥣 The Cauldron"),
+            h('div', { className: "flex flex-col gap-4" }, [
+              h('input', { type: "text", placeholder: "勘定科目名...", value: accName, onChange: e => setAccName(e.target.value), className: "bg-slate-950 border border-white/10 p-4 rounded-xl text-sm outline-none" }),
+              h('select', { value: accCatId, onChange: e => setAccCatId(e.target.value), className: "bg-slate-950 border border-white/10 p-4 rounded-xl text-sm outline-none appearance-none" }, [h('option', { value: "" }, "-- カテゴリ選択 --"), ...flattenedCats.map(c => h('option', { key: c.id, value: c.id }, `${"　".repeat(c.depth)}${c.parentId ? '└ ' : ''}${c.name}`))]),
+              h('div', { className: "flex flex-wrap gap-2" }, visualTypes.map(v => h('button', { key: v.id, onClick: () => setAccVisId(v.id), className: `w-10 h-10 rounded-xl border transition-all flex items-center justify-center ${accVisId === v.id ? 'border-cyan-500 bg-cyan-500/20 text-cyan-100' : 'border-white/5 bg-slate-950/40 opacity-40'}` }, h('span', { className: "text-xl" }, v.icon)))),
+              h('button', { onClick: () => { if (accName && accCatId) { addAccount({ name: accName, categoryId: accCatId, visualTypeId: accVisId }); setAccName(''); showToast(`科目「${accName}」を錬成しました`, 'success', { icon: '🧪' }); } }, className: `${THEME.btnBase} w-full mt-2 ${THEME.btnCyan}` }, "Forge Account")
+            ])
+          ]),
+          h('div', { className: THEME.panelFuchsia }, [
+            h('h3', { className: `${THEME.labelFuchsia} mb-6` }, "📚 The Archive"),
+            h('div', { className: "flex flex-col gap-4" }, [
+              h('input', { type: "text", placeholder: "フォルダ名...", value: catName, onChange: e => setCatName(e.target.value), className: "bg-slate-950 border border-white/10 p-4 rounded-xl text-sm outline-none" }),
+              h('select', { value: catParentId, onChange: e => setCatParentId(e.target.value), className: "bg-slate-950 border border-white/10 p-4 rounded-xl text-sm outline-none appearance-none" }, [h('option', { value: "" }, "-- ルート (Root) --"), ...flattenedCats.map(c => h('option', { key: c.id, value: c.id }, `${"　".repeat(c.depth)}${c.parentId ? '└ ' : ''}${c.name}`))]),
+              h('button', { onClick: () => { if (catName) { addCategory(catName, catParentId || null, 'Asset'); setCatName(''); setCatParentId(''); showToast(`フォルダ「${catName}」を記録しました`, 'success', { icon: '📁' }); } }, className: `${THEME.btnBase} w-full mt-2 bg-fuchsia-500/10 text-fuchsia-400 border-fuchsia-500/30 hover:bg-fuchsia-500/20` }, "Archive Folder")
+            ])
+          ])
+        ]),
+        h('div', { className: "grid grid-cols-1 lg:grid-cols-2 gap-8" }, [
+          h('div', { className: `glass p-8 rounded-[2.5rem] border border-amber-500/20 bg-slate-900/80 shadow-[0_0_30px_rgba(245,158,11,0.1)]` }, [
+            h('h3', { className: "text-[10px] font-bold text-amber-400 uppercase tracking-widest mb-6" }, "✨ Summon Spirit"),
+            h('div', { className: "flex flex-col gap-4" }, [
+              h('div', { className: "grid grid-cols-2 gap-4" }, [
+                h('input', { type: "text", placeholder: "精霊の名前...", value: spiritName, onChange: e => setSpiritName(e.target.value), className: "bg-slate-950 border border-white/10 p-4 rounded-xl text-sm outline-none" }),
+                h('input', { type: "text", placeholder: "⚡️", value: spiritIcon, onChange: e => setSpiritIcon(e.target.value), className: "bg-slate-950 border border-white/10 p-4 rounded-xl text-xl text-center outline-none" })
+              ]),
+              h('textarea', { placeholder: "精霊の説明...", value: spiritDesc, onChange: e => setSpiritDesc(e.target.value), className: "bg-slate-950 border border-white/10 p-4 rounded-xl text-sm h-24 outline-none resize-none" }),
+              h('button', { onClick: () => { if (spiritName && spiritIcon) { addVisualType({ name: spiritName, icon: spiritIcon, desc: spiritDesc }); setSpiritName(''); setSpiritIcon(''); setSpiritDesc(''); showToast(`精霊 ${spiritIcon} が降臨しました`); } }, className: "bg-amber-500/20 text-amber-400 py-4 rounded-xl font-bold uppercase text-[10px] tracking-widest border border-amber-500/30" }, "Summon Spirit")
+            ])
+          ]),
+          h('div', { className: "crimson-glow p-8 rounded-[2.5rem] border border-red-500/30 flex flex-col items-center justify-center text-center gap-4" }, [
+            h('div', { className: "p-4 bg-red-600/10 rounded-full border border-red-500/20 text-red-500 text-3xl mb-2" }, "💀"),
+            h('h3', { className: "text-xs font-bold text-red-100 uppercase tracking-[0.3em]" }, "Purification Spell"),
+            h('button', {
+              onClick: () => requestConfirmation({ message: "全記録を初期化し、原初の静寂に戻しますか？", onConfirm: () => resetToDefault() }),
+              className: `w-full py-4 text-base ${THEME.btnDanger}`
+            }, "RESET ALL DATA")
+          ])
+        ])
+      ]);
+    }
+
+    function TreeNode({ node, depth, isExpanded, onToggle, onMove, onDelete, children, visualTypes }) {
+      const isCat = node.nodeType === 'category';
+      const isRoot = isCat && ['cat_asset', 'cat_liability', 'cat_equity', 'cat_revenue', 'cat_expense'].includes(node.id);
+      const icon = isCat ? (isExpanded ? '📂' : '📁') : (visualTypes?.find(v => v.id === node.visualTypeId)?.icon || '📄');
+
+      return h('div', { className: "flex flex-col" }, [
+        h('div', {
+          style: { paddingLeft: `${depth * 24}px` },
+          className: `group flex items-center justify-between py-2.5 px-5 rounded-2xl transition-all duration-300 ${isCat ? 'hover:bg-white/5' : 'hover:bg-cyan-400/5 hover:shadow-[0_0_20px_rgba(6,182,212,0.1)]'}`
+        }, [
+          h('div', { className: "flex items-center gap-4" }, [
+            isCat ? h('button', { onClick: onToggle, className: "text-slate-500 hover:text-cyan-400 transition-transform" }, h(motion.span, { animate: { rotate: isExpanded ? 90 : 0 }, className: "inline-block text-[10px]" }, "▶")) : h('span', { className: "w-4 flex justify-center opacity-20 text-[8px]" }, "●"),
+            h('span', { className: `text-sm tracking-tight ${isCat ? 'font-bold text-slate-100' : 'text-slate-400'} flex items-center gap-3` }, [
+              h('span', { className: "text-lg filter drop-shadow-[0_0_8px_rgba(255,255,255,0.2)]" }, icon),
+              node.name
+            ])
+          ]),
+          h('div', { className: "flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all" }, [
+            !isRoot && [
+              h('button', { key: 'up', onClick: () => onMove('up'), className: "p-1.5 text-slate-600 hover:text-white bg-white/5 rounded-lg" }, "↑"),
+              h('button', { key: 'down', onClick: () => onMove('down'), className: "p-1.5 text-slate-600 hover:text-white bg-white/5 rounded-lg" }, "↓"),
+              h('button', { key: 'del', onClick: onDelete, className: "p-2 text-slate-600 hover:text-red-500 bg-red-500/5 rounded-lg" }, "🗑️")
+            ]
+          ])
+        ]),
+        h(AnimatePresence, null, children)
+      ]);
+    }
+
+    function MasterDeckOrganizer() {
+      const { categories, accounts, visualTypes, moveNode, deleteNode, resetToDefault, showToast } = useLuminousStore();
+      const [expandedIds, setExpandedIds] = useState(['cat_asset', 'cat_liability', 'cat_equity', 'cat_revenue', 'cat_expense']);
+      const toggleExpand = (id) => setExpandedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
+
+      const renderTree = (pId = null, depth = 0) => {
+        const sorted = [
+          ...categories.filter(c => c.parentId === pId || (pId === null && !c.parentId)).map(c => ({ ...c, nodeType: 'category' })),
+          ...accounts.filter(a => a.categoryId === pId).map(a => ({ ...a, nodeType: 'account' }))
+        ].sort((a, b) => (a.order || 0) - (b.order || 0));
+
+        if (sorted.length === 0 && pId === null) return h('div', { className: "flex flex-col items-center justify-center p-12 border border-dashed border-white/10 rounded-[2.5rem] mt-4" }, [h('p', { className: "text-slate-500 text-xs font-bold uppercase tracking-widest mb-4" }, "マスターデータが空です"), h('button', { onClick: () => { resetToDefault(); showToast("✨ Root Deck was re-manifested..."); } }, "初期カテゴリーを錬成する")]);
+
+        return sorted.map(n => h(TreeNode, { key: n.id, node: n, depth, isExpanded: expandedIds.includes(n.id), onToggle: () => toggleExpand(n.id), onMove: (dir) => moveNode(n.nodeType, n.id, dir), onDelete: () => deleteNode(n.nodeType, n.id), visualTypes }, [expandedIds.includes(n.id) && h('div', { key: `child-${n.id}`, className: "overflow-hidden" }, renderTree(n.id, depth + 1))]));
+      };
+
+      return h('div', { className: `flex flex-col h-full text-left overflow-hidden ${THEME.panel} bg-slate-900/10` }, [
+        h('div', { className: "flex justify-between items-center mb-8" }, [h('h3', { className: `${THEME.labelSub} text-sm flex items-center gap-3` }, "📁 Master Deck Organizer"), h('div', { className: "px-3 py-1 bg-cyan-500/10 border border-cyan-500/20 rounded-lg text-[9px] text-cyan-400 uppercase font-mono tracking-widest leading-none" }, "Hierarchy Live")]),
+        h('div', { className: "flex-1 overflow-y-auto hide-scroll pr-4 pb-20" }, [h('div', { className: "flex flex-col gap-1" }, renderTree(null))])
+      ]);
+    }
+
+    function AnalysisSettingView() {
+      const { benchmark, updateBenchmark, showToast, stories, activeComparisonId, setActiveComparisonId } = useLuminousStore();
+
+      const presets = {
+        "General Manufacturing (製造業)": {
+          grossProfitMargin: 20.0, operatingProfitMargin: 5.2, roe: 8.0, roa: 4.5,
+          currentRatio: 145.0, equityRatio: 40.0,
+          totalAssetTurnover: 0.9, inventoryTurnover: 6.0
+        },
+        "Retail Commerce (小売業)": {
+          grossProfitMargin: 25.0, operatingProfitMargin: 3.1, roe: 12.0, roa: 6.0,
+          currentRatio: 110.0, equityRatio: 25.0,
+          totalAssetTurnover: 2.1, inventoryTurnover: 24.0
+        },
+        "High-Tech Service (IT・サービス業)": {
+          grossProfitMargin: 45.0, operatingProfitMargin: 15.5, roe: 18.0, roa: 12.0,
+          currentRatio: 220.0, equityRatio: 65.0,
+          totalAssetTurnover: 1.2, inventoryTurnover: 50.0
+        }
+      };
+
+      const metricMeta = {
+        profitability: [
+          { key: 'grossProfitMargin', label: '売上高総利益率', unit: '%', min: 0, max: 100, step: 0.5, desc: '付加価値の高さ。' },
+          { key: 'operatingProfitMargin', label: '売上高営業利益率', unit: '%', min: 0, max: 40, step: 0.1, desc: '本業の稼ぐ力。' },
+          { key: 'roe', label: '自己資本利益率', unit: '%', min: 0, max: 40, step: 0.1, desc: '資本運用の効率性。' },
+          { key: 'roa', label: '総資産利益率', unit: '%', min: 0, max: 20, step: 0.1, desc: '資産全体での収益性。' }
+        ],
+        safety: [
+          { key: 'currentRatio', label: '流動比率', unit: '%', min: 0, max: 400, step: 1.0, desc: '短期的な支払能力。' },
+          { key: 'equityRatio', label: '自己資本比率', unit: '%', min: 0, max: 100, step: 1.0, desc: '財務の長期的安定性。' }
+        ],
+        efficiency: [
+          { key: 'totalAssetTurnover', label: '総資産回転率', unit: '回', min: 0, max: 5.0, step: 0.1, desc: '資産活用の活発さ。' },
+          { key: 'inventoryTurnover', label: '棚卸資産回転率', unit: '回', min: 0, max: 100, step: 1.0, desc: '在庫管理の鮮度。' }
+        ]
+      };
+
+      const handleUpdate = (key, val) => {
+        updateBenchmark({ metrics: { ...benchmark.metrics, [key]: parseFloat(val) } });
+      };
+
+      // Phase 7: クリア済みストーリーのみ比較対象候補
+      const caseStories = (stories || []).filter(s => s.isCleared && s.metricsSnapshot && Object.keys(s.metricsSnapshot).length > 0);
+      const casePreviewKeys = [
+        { key: 'roe', label: 'ROE', unit: '%' },
+        { key: 'equityRatio', label: '自己資本比率', unit: '%' },
+        { key: 'grossProfitMargin', label: '売上総利益率', unit: '%' },
+        { key: 'currentRatio', label: '流動比率', unit: '%' }
+      ];
+
+      return h('div', { className: "flex flex-col gap-12 text-left pb-32" }, [
+        // Upper: Presets
+        h('div', { className: "bg-slate-900/40 p-10 rounded-[3rem] border border-white/5" }, [
+          h('h3', { className: "text-[10px] text-cyan-400 font-bold uppercase tracking-widest flex items-center gap-2 mb-8" }, "🏛️ Industry Benchmarks"),
+          h('div', { className: "grid grid-cols-1 md:grid-cols-3 gap-6" }, Object.keys(presets).map(name => h('button', {
+            key: name,
+            onClick: () => { updateBenchmark({ name, metrics: presets[name] }); showToast(`${name} プリセットを適用しました`); },
+            className: `p-6 rounded-2xl border transition-all text-left flex flex-col gap-2 ${benchmark.name === name ? 'border-cyan-500 bg-cyan-500/10 shadow-[0_0_30px_rgba(6,182,212,0.15)]' : 'border-white/5 bg-black/20 text-slate-500 hover:border-white/20'}`
+          }, [
+            h('span', { className: `text-sm font-bold ${benchmark.name === name ? 'text-white' : 'text-slate-400'}` }, name),
+            h('span', { className: "text-[9px] uppercase tracking-widest opacity-60" }, "Sync Calibration Data")
+          ])))
+        ]),
+
+        // Phase 7: Case Comparison Section
+        h('div', { className: "bg-slate-900/40 p-10 rounded-[3rem] border border-amber-500/10" }, [
+          h('div', { className: "flex items-center justify-between mb-8" }, [
+            h('h3', { className: "text-[10px] text-amber-400 font-bold uppercase tracking-widest flex items-center gap-2" }, "⚡️ Case Comparison"),
+            activeComparisonId && h(motion.span, {
+              initial: { opacity: 0, scale: 0.8 },
+              animate: { opacity: 1, scale: 1 },
+              className: "text-[9px] text-amber-400 uppercase tracking-widest font-mono bg-amber-500/10 border border-amber-500/20 px-3 py-1 rounded-lg"
+            }, "Comparing...")
+          ]),
+          caseStories.length === 0
+            ? h('div', { className: "flex flex-col items-center justify-center py-16 border border-dashed border-white/10 rounded-[2.5rem]" }, [
+                h('span', { className: "text-3xl mb-4 opacity-30" }, "📜"),
+                h('p', { className: "text-slate-500 text-xs font-bold uppercase tracking-widest" }, "No Cleared Stories Yet"),
+                h('p', { className: "text-[10px] text-slate-600 mt-2 italic" }, "クエストを完了すると、ここに事例カードが出現します")
+              ])
+            : h('div', { className: "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" }, caseStories.map(story => {
+                const isSelected = activeComparisonId === story.id;
+                const snap = story.metricsSnapshot || {};
+                return h(motion.div, {
+                  key: story.id,
+                  whileHover: { y: -4, scale: 1.01 },
+                  transition: { type: 'spring', stiffness: 300, damping: 25 },
+                  onClick: () => {
+                    setActiveComparisonId(story.id);
+                    showToast(isSelected ? '比較を解除しました' : `「${story.title}」を比較対象に設定`, 'success', { icon: isSelected ? '🔓' : '⚡️' });
+                  },
+                  className: `p-6 rounded-[2rem] border-2 transition-all cursor-pointer relative overflow-hidden group ${isSelected ? 'border-amber-500 bg-amber-500/10 shadow-[0_0_40px_rgba(251,191,36,0.2)]' : 'border-white/5 bg-slate-900/60 hover:border-amber-500/30 hover:bg-slate-900/80'} backdrop-blur-xl hover:backdrop-blur-2xl`
+                }, [
+                  // Amber glow bar (top)
+                  isSelected && h(motion.div, {
+                    initial: { scaleX: 0 },
+                    animate: { scaleX: 1 },
+                    className: "absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500 origin-left"
+                  }),
+                  // Header
+                  h('div', { className: "flex items-start justify-between mb-4" }, [
+                    h('div', { className: "flex flex-col gap-1" }, [
+                      h('span', { className: `text-base font-bold tracking-tight ${isSelected ? 'text-amber-100' : 'text-slate-200'}` }, story.title),
+                      h('span', { className: "text-[9px] text-slate-500 font-mono uppercase tracking-widest" }, story.createdAt ? new Date(story.createdAt).toLocaleDateString('ja-JP') : '—')
+                    ]),
+                    isSelected && h(motion.span, {
+                      initial: { scale: 0, rotate: -90 },
+                      animate: { scale: 1, rotate: 0 },
+                      transition: { type: 'spring', stiffness: 400, damping: 15 },
+                      className: "text-2xl"
+                    }, "⚡️")
+                  ]),
+                  // Mini metric preview grid
+                  h('div', { className: "grid grid-cols-2 gap-2 mt-2" }, casePreviewKeys.map(pk =>
+                    h('div', { key: pk.key, className: `p-2.5 rounded-xl ${isSelected ? 'bg-amber-500/10 border border-amber-500/20' : 'bg-slate-950/40 border border-white/5'}` }, [
+                      h('span', { className: "text-[8px] text-slate-500 uppercase tracking-widest block" }, pk.label),
+                      h('div', { className: "flex items-baseline gap-1 mt-0.5" }, [
+                        h('span', { className: `font-mono font-bold text-sm ${isSelected ? 'text-amber-400' : 'text-slate-300'}` }, snap[pk.key]?.toFixed(1) ?? '—'),
+                        h('span', { className: "text-[8px] text-slate-600" }, pk.unit)
+                      ])
+                    ])
+                  ))
+                ]);
+              }))
+        ]),
+
+        // Lower: Category Calibration
+        h('div', { className: "grid grid-cols-1 lg:grid-cols-3 gap-8" }, [
+          { cat: 'profitability', label: '収益性指標', theme: THEME.labelCyan, sub: 'Profitability' },
+          { cat: 'safety', label: '安全性指標', theme: THEME.labelFuchsia, sub: 'Stability' },
+          { cat: 'efficiency', label: '効率性指標', theme: 'text-amber-400 font-bold uppercase tracking-widest text-[10px]', sub: 'Activity' }
+        ].map(group => h('div', { key: group.cat, className: `${THEME.panel} p-8 flex flex-col gap-8 bg-slate-900/40` }, [
+          h('div', { className: "flex flex-col gap-1" }, [
+            h('span', { className: group.theme }, `✦ ${group.label}`),
+            h('span', { className: "text-[9px] text-slate-600 uppercase font-mono" }, group.sub)
+          ]),
+          h('div', { className: "flex flex-col gap-10" }, metricMeta[group.cat].map(m => h('div', { key: m.key, className: "flex flex-col gap-4" }, [
+            h('div', { className: "flex justify-between items-end" }, [
+              h('div', { className: "flex flex-col gap-1" }, [
+                h('span', { className: "text-xs font-bold text-slate-200" }, m.label),
+                h('span', { className: "text-[9px] text-slate-500 italic" }, m.desc)
+              ]),
+              h('div', { className: "flex items-baseline gap-1" }, [
+                h('span', { className: "font-mono font-bold text-lg text-cyan-400" }, benchmark.metrics[m.key]?.toFixed(m.step < 1 ? 1 : 0)),
+                h('span', { className: "text-[9px] text-slate-500" }, m.unit)
+              ])
+            ]),
+            h('input', {
+              type: "range", min: m.min, max: m.max, step: m.step,
+              value: benchmark.metrics[m.key] || 0,
+              onChange: e => handleUpdate(m.key, e.target.value),
+              className: "w-full h-1.5 bg-slate-800 rounded-lg appearance-none accent-cyan-500 cursor-pointer hover:accent-cyan-400 transition-all"
+            })
+          ])))
+        ])))
+      ]);
+    }
+
+    function JournalView() {
+      const { events, clearAllEvents, executeEpochClose, showToast, accounts, reverseEvent, deleteEvent, calculateBalances, activeStoryId, stories, clearQuest, requestConfirmation } = useLuminousStore();
+      const [activeView, setActiveView] = useState('journal');
+      const [isClosing, setIsClosing] = useState(false);
+      const { unbalancedEventIds, globalUnbalancedAmount } = calculateBalances();
+      const isSystemCollapsed = Math.abs(globalUnbalancedAmount) > 0.01;
+
+      const handleEpochClose = () => {
+        setIsClosing(true);
+        setTimeout(() => {
+          const result = executeEpochClose();
+          if (result.success) { showToast("決算完了：利益が純資産へ結晶化しました", "success", { icon: "🌌" }); }
+          else {
+            if (result.error === 'MISSING_RETAINED_EARNINGS') showToast("決算失敗：『利益剰余金』が存在しません", "danger", { icon: "⚠️", persistent: true, action: { label: "⚙️ FORGEへ", onClick: () => setActiveView('forge') } });
+            else if (result.error === 'SYSTEM_UNBALANCED') showToast("決算失敗：システムが均衡を失っています", "danger", { icon: "⚠️", persistent: true, action: { label: "⚖️ SCALEへ", onClick: () => useLuminousStore.getState().setActiveModule('scale') } });
+            else showToast(`決算失敗: ${result.error}`, "danger", { icon: "⚠️" });
+          }
+          setIsClosing(false);
+        }, 1200);
+      };
+
+      const hasQuest = stories && stories?.find(s => s.id === activeStoryId);
+
+      return h(ViewShell, { className: "transition-all duration-700 pl-8" }, [
+        h('div', { className: "flex gap-2 mb-8 bg-slate-900/40 p-2 rounded-2xl border border-white/5 self-end backdrop-blur-md z-[100]" }, [
+          { id: 'journal', label: 'Journal' }, { id: 'stories', label: 'Stories' }, { id: 'forge', label: 'Forge' }, { id: 'master', label: 'Organizer' }, { id: 'analysisSetting', label: 'Setting' }
+        ].map(t => h('button', { key: t.id, onClick: () => setActiveView(t.id), className: `px-6 py-2 rounded-xl text-[10px] font-bold uppercase transition-all cursor-pointer ${activeView === t.id ? 'text-cyan-400 bg-cyan-400/10 border border-cyan-500/20 shadow-lg' : 'text-slate-500 hover:text-slate-300'}` }, t.label))),
+        activeView === 'journal' && h('div', { className: "flex flex-col gap-6" }, [
+          h('div', { className: "flex justify-between items-end mb-12 relative z-10" }, [
+            h('div', { className: "text-left" }, [h('div', { className: "flex items-center gap-3" }, [h('div', { className: "w-2 h-2 rounded-full bg-cyan-500/50 animate-pulse" }), h('span', { className: "text-[10px] font-bold text-slate-500 uppercase tracking-[0.4em]" }, "The Command Center")]), h('h2', { className: "text-4xl font-bold tracking-tighter mt-2 text-slate-100 uppercase" }, activeView)]),
+            h('div', { className: "flex gap-4" }, [
+              activeStoryId && h('button', { onClick: () => requestConfirmation({ message: "クエストを完了し、現在の仕訳をこの物語の記憶として刻みますか？", onConfirm: () => { clearQuest(activeStoryId); showToast("✨ クエストクリア！", "success", { icon: "📜" }); } }), className: "px-6 py-3 bg-amber-500/20 text-amber-400 rounded-2xl text-[10px] font-bold uppercase border border-amber-500/40 hover:bg-amber-500/30 transition-all cursor-pointer" }, "📜 Complete Quest"),
+              h('button', { onClick: (e) => { e.stopPropagation(); requestConfirmation({ message: "本当に全て初期化しますか？", onConfirm: () => { clearAllEvents(); showToast("浄化されました", "danger", { icon: "💥" }); } }); }, className: "px-6 py-3 border border-red-500/50 text-red-400 rounded-2xl text-[10px] font-bold uppercase hover:bg-red-500/10 transition-all cursor-pointer relative z-20" }, "Reset Ledger"),
+              h('button', { onClick: handleEpochClose, disabled: isClosing || isSystemCollapsed, className: "px-8 py-3 rounded-2xl text-[10px] font-bold uppercase border text-fuchsia-400 border-fuchsia-500/40 disabled:opacity-20 hover:bg-fuchsia-500/10 transition-all cursor-pointer" }, `🌌 ${isClosing ? 'Closing...' : 'Execute Close'}`)
+            ])
+          ]),
+          h('div', { className: "flex-1 flex flex-col gap-4" },
+            events.length === 0 ? h('div', { className: "p-40 text-center text-slate-800 uppercase italic" }, "Empty Void...") :
+              events.slice().reverse().map(ev => h(motion.div, { layout: true, key: ev.id, className: "p-8 rounded-[2rem] border bg-slate-900/40 border-white/5 flex items-center justify-between" }, [
+                h('div', { className: "w-1/4" }, [h('div', { className: "font-bold text-lg text-slate-100" }, ev.description), h('div', { className: "text-[10px] text-slate-600 uppercase font-mono" }, new Date(ev.date).toLocaleString())]),
+                h('div', { className: "flex-1 flex gap-10 px-12" }, [
+                  h('div', { className: "flex-1" }, (ev.debits || []).map((d, i) => h('div', { key: i, className: "flex justify-between text-[11px] mb-1" }, [h('span', { className: "text-cyan-400" }, accounts?.find(a => a.id === d.accountId)?.name ?? '不明な科目'), h('span', { className: "font-mono" }, `¥${(d.amount || 0).toLocaleString()}`)]))),
+                  h('div', { className: "flex-1" }, (ev.credits || []).map((c, i) => h('div', { key: i, className: "flex justify-between text-[11px] mb-1" }, [h('span', { className: "text-purple-400" }, accounts?.find(a => a.id === c.accountId)?.name ?? '不明な科目'), h('span', { className: "font-mono" }, `¥${(c.amount || 0).toLocaleString()}`)])))
+                ]),
+                h('div', { className: "w-1/4 flex justify-end gap-2" }, [
+                  h('button', { onClick: () => reverseEvent(ev.id), className: "p-3 rounded-xl border border-amber-500/20 text-amber-500" }, "↩️"),
+                  h('button', { onClick: () => requestConfirmation({ message: "削除しますか？", onConfirm: () => deleteEvent(ev.id) }), className: "p-3 rounded-xl border border-red-500/20 text-red-500" }, "🗑️")
+                ])
+              ]))
+          )
+        ]),
+        activeView === 'stories' && h(StoriesView),
+        activeView === 'forge' && h(ForgeView),
+        activeView === 'master' && h(MasterDeckOrganizer),
+        activeView === 'analysisSetting' && h(AnalysisSettingView)
+      ]);
+    }
+
+    function ScaleView() {
+      const { metrics, visualTypes, viewData } = useLuminousStore();
+      const [hoveredMotif, setHoveredMotif] = useState(null);
+
+      const { aAccs, lAccs, eAccs, rawL, rawR, rot } = viewData?.scale || { aAccs: [], lAccs: [], eAccs: [], rawL: [], rawR: [], rot: 0 };
+
+      const leftM = rawL.slice(0, 25);
+      const rightM = [...rawR.slice(0, 25)];
+      if (Math.abs(metrics?.netIncome || 0) > 100000) {
+        rightM.push({ id: 'net-income-gem', name: '当期純利益', icon: '💎', amount: Math.abs(metrics.netIncome) });
+      }
+
+      return h(ViewShell, { className: "transition-all duration-700 pl-0" }, [
+        h('div', { className: "flex justify-between items-center w-full px-12" }, [
+          h('div', { className: "flex flex-col" }, [h('span', { className: "text-[10px] uppercase tracking-widest text-cyan-500 font-bold mb-1" }, "Assets"), h(motion.span, { layout: true, transition: slowTransition, className: "text-5xl font-mono font-bold text-cyan-100" }, `¥${(metrics?.totalAssets ?? 0).toLocaleString()}`)]),
+          h('div', { className: "flex flex-col items-center" }, [
+            h('span', { className: `text-xs font-bold uppercase tracking-[0.3em] px-8 py-3 rounded-full border bg-slate-900/80 transition-all duration-[1500ms] ${metrics?.isBalanced ? 'border-cyan-500/50 text-cyan-400 shadow-[0_0_25px_rgba(6,182,212,0.3)]' : 'border-red-500/50 text-red-400 shadow-[0_0_25px_rgba(239,68,68,0.3)]'}` }, metrics?.isBalanced ? '✦ 完全均衡 (Equilibrium) ✦' : '✦ 均衡崩壊 (Instability) ✦'),
+            !metrics?.isBalanced && h('div', { className: "flex items-center gap-2 mt-2" }, [h('span', { className: "text-[10px] text-slate-500 uppercase tracking-widest font-bold" }, "Difference:"), h('span', { className: "text-xs font-mono font-bold text-fuchsia-400" }, `¥ ${(metrics?.diff ?? 0).toLocaleString()}`)])
+          ]),
+          h('div', { className: "flex flex-col text-right" }, [h('span', { className: "text-[10px] uppercase tracking-widest text-purple-500 font-bold mb-1" }, "Liab & Equity"), h(motion.span, { layout: true, transition: slowTransition, className: "text-5xl font-mono font-bold text-purple-100" }, `¥${Math.round((metrics?.totalLiabEquity || 0) + (metrics?.netIncome || 0)).toLocaleString()}`)])
+        ]),
+        h('div', { className: "relative w-full h-[500px] flex items-center justify-center" }, [
+          h('div', { className: "relative w-full max-w-[800px] h-full pointer-events-none" }, [
+            h('div', { className: "absolute left-1/2 bottom-0 -translate-x-1/2 w-80 h-16 bg-gradient-to-t from-yellow-950 via-yellow-700 to-amber-500 rounded-[50%] border-b-8 border-yellow-900 shadow-[0_40px_60px_rgba(0,0,0,0.9)]" }),
+            h('div', { className: "absolute left-1/2 bottom-10 -translate-x-1/2 w-10 h-[340px] bg-gradient-to-r from-yellow-950 via-amber-400 to-yellow-950 rounded-t-full shadow-2xl border-x border-amber-200/30 flex justify-center" }),
+            h(motion.div, { initial: { x: "-50%" }, animate: { x: "-50%", rotate: rot }, transition: slowTransition, className: "absolute left-1/2 top-[120px] w-[700px] h-8 bg-gradient-to-b from-amber-200 via-yellow-600 to-yellow-950 rounded-full shadow-2xl origin-center z-10 flex justify-between border-y border-amber-200/40" }, [
+              h('div', { className: "absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-16 h-16 bg-gradient-to-br from-yellow-100 via-yellow-600 to-yellow-900 rounded-full border-4 border-yellow-950 shadow-[0_0_40px_rgba(251,191,36,0.6)] z-20" }),
+              h(motion.div, { animate: { rotate: -rot }, transition: slowTransition, className: "absolute top-[4px] -left-[100px] w-[200px] h-[300px] origin-top flex flex-col items-center justify-end" }, [
+                h('svg', { className: "absolute top-0 left-0 w-full h-[290px]", preserveAspectRatio: "none" }, [h('line', { x1: "100", y1: "0", x2: "30", y2: "280", stroke: "#fef08a", strokeWidth: "2", strokeDasharray: "4 4", opacity: "0.4" }), h('line', { x1: "100", y1: "0", x2: "170", y2: "280", stroke: "#fef08a", strokeWidth: "2", strokeDasharray: "4 4", opacity: "0.4" })]),
+                h('div', { className: "relative w-[200px] h-[40px] bg-gradient-to-b from-amber-200 via-yellow-700 to-yellow-950 rounded-b-full border-t border-amber-100/50 shadow-2xl flex justify-center items-end pb-3" }, [
+                  h('div', { className: "absolute bottom-[10px] w-full flex flex-wrap-reverse justify-center w-[160px] gap-1 pointer-events-auto" }, leftM.map(m => h(motion.div, { key: m.id, onMouseEnter: () => setHoveredMotif(m), onMouseLeave: () => setHoveredMotif(null), initial: { opacity: 0, scale: 0 }, animate: { opacity: 1, scale: 1 }, className: "text-4xl cursor-pointer" }, m.icon)))
+                ])
+              ]),
+              h(motion.div, { animate: { rotate: -rot }, transition: slowTransition, className: "absolute top-[4px] -left-[100px] w-[200px] h-[300px] origin-top flex flex-col items-center justify-end", style: { left: 'auto', right: '-100px' } }, [
+                h('svg', { className: "absolute top-0 left-0 w-full h-[290px]", preserveAspectRatio: "none" }, [h('line', { x1: "100", y1: "0", x2: "30", y2: "280", stroke: "#fef08a", strokeWidth: "2", strokeDasharray: "4 4", opacity: "0.4" }), h('line', { x1: "100", y1: "0", x2: "170", y2: "280", stroke: "#fef08a", strokeWidth: "2", strokeDasharray: "4 4", opacity: "0.4" })]),
+                h('div', { className: "relative w-[200px] h-[40px] bg-gradient-to-b from-amber-200 via-yellow-700 to-yellow-950 rounded-b-full border-t border-amber-100/50 shadow-2xl flex justify-center items-end pb-3" }, [
+                  h('div', { className: "absolute bottom-[10px] w-full flex flex-wrap-reverse justify-center w-[160px] gap-1 pointer-events-auto" }, rightM.map(m => h(motion.div, { key: m.id, onMouseEnter: () => setHoveredMotif(m), onMouseLeave: () => setHoveredMotif(null), initial: { opacity: 0, scale: 0 }, animate: { opacity: 1, scale: 1 }, className: "text-4xl cursor-pointer" }, m.icon)))
+                ])
+              ])
+            ])
+          ]),
+          h(AnimatePresence, null, hoveredMotif && h(motion.div, { key: 'hover-popup', initial: { opacity: 0, y: 20 }, animate: { opacity: 1, y: 0 }, exit: { opacity: 0 }, className: "absolute bottom-10 glass border-2 border-cyan-500/30 px-10 py-6 rounded-[2rem] flex flex-col items-center gap-2 shadow-2xl z-50 pointer-events-none" }, [h('span', { className: "text-6xl mb-2" }, hoveredMotif.icon), h('span', { className: "text-2xl font-bold uppercase text-white" }, hoveredMotif.name), h('span', { className: "text-amber-400 font-mono text-3xl font-bold" }, `¥${hoveredMotif.amount.toLocaleString()}`)])),
+        ]),
+        h('div', { className: "grid grid-cols-1 lg:grid-cols-2 gap-8 mt-12" }, [
+          h('section', { className: `${THEME.panel} flex flex-col bg-slate-900/80` }, [
+            h('div', { className: "mb-6 border-b border-white/5 pb-4" }, [h('h3', { className: `${THEME.h2} text-cyan-50` }, "資産 (Assets)"), h('p', { className: "text-xs text-slate-500 mt-1 uppercase tracking-widest text-left" }, "借方科目一覧")]),
+            h('div', { className: "flex flex-col gap-4 overflow-y-auto max-h-[600px] hide-scroll pr-2" }, aAccs.map(b => h('div', { key: b.account.id, className: THEME.panelItem }, [
+              h('div', { className: "flex flex-col text-left" }, [h('span', { className: "text-[10px] text-slate-500 uppercase tracking-widest" }, b.category?.name), h('div', { className: "flex items-center gap-3 mt-1" }, [h('span', { className: "text-xl" }, visualTypes?.find(v => v.id === b.account.visualTypeId)?.icon || '💠'), h('span', { className: "text-base font-bold text-slate-200" }, b.account?.name ?? '不明な科目')])]),
+              h('span', { className: THEME.numCyan }, `¥${(b.displayBalance ?? 0).toLocaleString()}`)
+            ])))
+          ]),
+          h('section', { className: `${THEME.panel} flex flex-col bg-slate-900/80` }, [
+            h('div', { className: "mb-6 border-b border-white/5 pb-4" }, [h('h3', { className: "text-2xl font-bold text-purple-100" }, "負債・純資産 (Liab & Equity)"), h('p', { className: "text-xs text-slate-500 mt-1 uppercase tracking-widest text-left" }, "貸方科目一覧")]),
+            h('div', { className: "flex flex-col gap-8 overflow-y-auto max-h-[600px] hide-scroll pr-2" }, [
+              h('div', { className: "flex flex-col gap-3" }, [h('span', { className: "text-[10px] font-bold text-slate-500 uppercase tracking-widest border-b border-white/5 pb-2 text-left" }, "負債"), lAccs.map(b => h('div', { key: b.account.id, className: THEME.panelItem }, [
+                h('div', { className: "flex flex-col text-left" }, [h('span', { className: "text-[10px] text-slate-500 uppercase tracking-widest" }, b.category?.name), h('div', { className: "flex items-center gap-3 mt-1" }, [h('span', { className: "text-xl" }, visualTypes?.find(v => v.id === b.account.visualTypeId)?.icon || '💠'), h('span', { className: "text-base font-bold text-slate-200" }, b.account?.name ?? '不明な科目')])]),
+                h('span', { className: `${THEME.numBase} text-purple-300` }, `¥${(b.displayBalance ?? 0).toLocaleString()}`)
+              ]))]),
+              h('div', { className: "flex flex-col gap-3" }, [
+                h('span', { className: "text-[10px] font-bold text-slate-500 uppercase tracking-widest border-b border-white/5 pb-2 text-left" }, "純資産・利益"),
+                eAccs.map(b => h('div', { key: b.account.id, className: THEME.panelItem }, [
+                  h('div', { className: "flex flex-col text-left" }, [h('span', { className: "text-[10px] text-slate-500 uppercase tracking-widest" }, b.category?.name), h('div', { className: "flex items-center gap-3 mt-1" }, [h('span', { className: "text-xl" }, visualTypes?.find(v => v.id === b.account.visualTypeId)?.icon || '💠'), h('span', { className: "text-base font-bold text-slate-200" }, b.account?.name ?? '不明な科目')])]),
+                  h('span', { className: `${THEME.numBase} text-purple-300` }, `¥${(b.displayBalance ?? 0).toLocaleString()}`)
+                ])),
+                Math.abs(metrics?.netIncome || 0) > 0.01 && h('div', { className: `${THEME.panelItem} border-fuchsia-500/30 bg-fuchsia-500/10 shadow-[0_0_20px_rgba(217,70,239,0.1)]` }, [
+                  h('div', { className: "flex flex-col text-left" }, [h('span', { className: "text-[10px] text-fuchsia-500 font-bold uppercase tracking-widest" }, "Profit / Loss"), h('div', { className: "flex items-center gap-3 mt-1" }, [h('span', { className: "text-xl animate-pulse" }, "💎"), h('span', { className: "text-base font-bold text-fuchsia-100" }, "当期純利益 (Net Income)")])]),
+                  h('span', { className: "text-2xl font-mono font-bold text-fuchsia-400 drop-shadow-[0_0_10px_rgba(217,70,239,0.5)]" }, `¥${Math.round(metrics.netIncome).toLocaleString()}`)
+                ])
+              ])
+            ])
+          ])
+        ])
+      ]);
+    }
+
+    function PrismView() {
+      const { metrics, benchmark, stories, activeComparisonId } = useLuminousStore();
+      const [selectedMetric, setSelectedMetric] = React.useState(null);
+
+      // Phase 7: 比較事例のスナップショット取得
+      const comparisonStory = activeComparisonId ? (stories || []).find(s => s.id === activeComparisonId) : null;
+      const comparisonSnap = comparisonStory?.metricsSnapshot || null;
+
+      const RADAR_CONFIG = [
+        // 収益性
+        { key: 'grossProfitMargin', label: '売上高総利益率', short: 'GPM', unit: '%', max: 50, group: '収益性', theme: 'text-cyan-400', formula: '(売上総利益 / 売上高)', comment: val => val > (benchmark.metrics.grossProfitMargin || 20) ? '✦ 高付加価値モデルを維持。' : '⚠️ 原価率の改善が急務。' },
+        { key: 'operatingProfitMargin', label: '売上高営業利益率', short: 'OPM', unit: '%', max: 20, group: '収益性', theme: 'text-cyan-400', formula: '(営業利益 / 売上高)', comment: val => val > (benchmark.metrics.operatingProfitMargin || 5) ? '✦ 本業の収益性は極めて健全。' : '⚠️ 固定費の削減を検討。' },
+        { key: 'roe', label: '自己資本利益率', short: 'ROE', unit: '%', max: 20, group: '収益性', theme: 'text-cyan-400', formula: '(純利益 / 自己資本)', comment: val => val > 10 ? '✦ 効率的な資本運用を実現。' : '⚠️ 投資リターンの改善を。' },
+        { key: 'roa', label: '総資産利益率', short: 'ROA', unit: '%', max: 15, group: '収益性', theme: 'text-cyan-400', formula: '(純利益 / 総資産)', comment: val => val > 6 ? '✦ 資産全体の収益性が高い。' : '⚠️ 資産活用の見直しを。' },
+        // 効率性
+        { key: 'totalAssetTurnover', label: '総資産回転率', short: 'TAT', unit: '回', max: 3.0, group: '効率性', theme: 'text-amber-400', formula: '(売上高 / 総資産)', comment: val => val > 1.0 ? '✦ 資産の回転は良好。' : '⚠️ 遊休資産の整理を。' },
+        { key: 'inventoryTurnover', label: '棚卸資産回転率', short: 'IT', unit: '回', max: 40, group: '効率性', theme: 'text-amber-400', formula: '(売上原価 / 在庫)', comment: val => val > 10 ? '✦ 在庫管理は非常に緻密。' : '⚠️ 在庫滞留のリスクあり。' },
+        // 安全性
+        { key: 'currentRatio', label: '流動比率', short: 'CR', unit: '%', max: 300, group: '安全性', theme: 'text-fuchsia-400', formula: '(流動資産 / 流動負債)', comment: val => val > 120 ? '✦ 短期的な支払能力は健全。' : '⚠️ 資金繰りの精査を推奨。' },
+        { key: 'equityRatio', label: '自己資本比率', short: 'ER', unit: '%', max: 100, group: '安全性', theme: 'text-fuchsia-400', formula: '(自己資本 / 総資産)', comment: val => val > 40 ? '✦ 極めて強固な財務体質。' : '⚠️ 自己資本の蓄積が必要。' }
+      ];
+
+      const size = 500;
+      const center = size / 2;
+      const radius = size * 0.35;
+      const N = RADAR_CONFIG.length;
+
+      const getCoord = (idx, val, max) => {
+        const angle = (Math.PI * 2 * idx) / N - Math.PI / 2;
+        const r = (Math.min(val, max) / (max || 1)) * radius;
+        return { x: center + r * Math.cos(angle), y: center + r * Math.sin(angle) };
+      };
+
+      const selfPath = RADAR_CONFIG.map((c, i) => {
+        const p = getCoord(i, metrics[c.key] || 0, c.max);
+        return `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`;
+      }).join(' ') + ' Z';
+
+      const benchPath = RADAR_CONFIG.map((c, i) => {
+        const p = getCoord(i, benchmark.metrics[c.key] || 0, c.max);
+        return `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`;
+      }).join(' ') + ' Z';
+
+      // Phase 7: 比較事例のポリゴンパス
+      const casePath = comparisonSnap ? RADAR_CONFIG.map((c, i) => {
+        const p = getCoord(i, comparisonSnap[c.key] || 0, c.max);
+        return `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`;
+      }).join(' ') + ' Z' : null;
+
+      return h(ViewShell, null, [
+        h('div', { className: "flex flex-col gap-12 pb-64" }, [
+          // Upper: The Advanced Radar
+          h('div', { className: `${THEME.panel} p-0 h-[600px] flex items-center justify-center relative overflow-hidden bg-slate-900/40` }, [
+            h('div', { className: "absolute top-8 left-10 text-left text-left" }, [
+              h('div', { className: "flex gap-6" }, [
+                h('div', { className: "flex items-center gap-2" }, [h('div', { className: "w-2 h-2 rounded-full bg-cyan-500 shadow-[0_0_10px_rgba(6,182,212,0.8)]" }), h('span', { className: "text-[9px] uppercase font-bold text-slate-400 tracking-widest" }, "自社 (Current)")]),
+                h('div', { className: "flex items-center gap-2" }, [h('div', { className: "w-2 h-2 rounded-full bg-fuchsia-500 shadow-[0_0_10px_rgba(217,70,239,0.8)]" }), h('span', { className: "text-[9px] uppercase font-bold text-slate-400 tracking-widest" }, `目標 (${benchmark.name})`)]),
+                comparisonStory && h(motion.div, { initial: { opacity: 0, x: -10 }, animate: { opacity: 1, x: 0 }, className: "flex items-center gap-2" }, [h('div', { className: "w-2 h-2 rounded-full bg-amber-500 shadow-[0_0_10px_rgba(251,191,36,0.8)]" }), h('span', { className: "text-[9px] uppercase font-bold text-amber-400 tracking-widest" }, `事例 (${comparisonStory.title})`)])
+              ])
+            ]),
+
+            h('svg', { width: size, height: size, viewBox: `0 0 ${size} ${size}`, className: "relative z-10" }, [
+              // Background Spider Web (5 levels)
+              [0.2, 0.4, 0.6, 0.8, 1.0].map(level => h('polygon', {
+                key: level,
+                points: RADAR_CONFIG.map((_, i) => {
+                  const a = (Math.PI * 2 * i) / N - Math.PI / 2;
+                  return `${center + radius * level * Math.cos(a)},${center + radius * level * Math.sin(a)}`;
+                }).join(' '),
+                fill: "none", stroke: "rgba(255,255,255,0.05)", strokeWidth: "1"
+              })),
+
+              // Axes and Labels
+              RADAR_CONFIG.map((c, i) => {
+                const angle = (Math.PI * 2 * i) / N - Math.PI / 2;
+                const isGroupStart = i === 0 || RADAR_CONFIG[i].group !== RADAR_CONFIG[i - 1].group;
+                const labelR = radius + 35;
+                const labelX = center + labelR * Math.cos(angle);
+                const labelY = center + labelR * Math.sin(angle);
+
+                return h('g', { key: c.key }, [
+                  h('line', {
+                    x1: center, y1: center,
+                    x2: center + radius * Math.cos(angle), y2: center + radius * Math.sin(angle),
+                    stroke: isGroupStart ? "rgba(255,255,255,0.2)" : "rgba(255,255,255,0.05)",
+                    strokeWidth: isGroupStart ? "2" : "1",
+                    strokeDasharray: isGroupStart ? "" : "4 4"
+                  }),
+                  h('text', {
+                    x: labelX, y: labelY,
+                    textAnchor: "middle", dominantBaseline: "middle",
+                    onClick: () => setSelectedMetric(c),
+                    className: "fill-slate-500 text-[10px] font-bold uppercase tracking-tighter cursor-pointer hover:fill-cyan-400 transition-colors"
+                  }, c.short)
+                ]);
+              }),
+
+              // Group Labels (Arch)
+              ['収益性', '効率性', '安全性'].map(gName => {
+                const groupIndices = RADAR_CONFIG.map((c, i) => c.group === gName ? i : null).filter(i => i !== null);
+                const startIdx = groupIndices[0];
+                const endIdx = groupIndices[groupIndices.length - 1];
+                const startAngle = (Math.PI * 2 * startIdx) / N - Math.PI / 2;
+                const endAngle = (Math.PI * 2 * endIdx) / N - Math.PI / 2;
+                const midAngle = (startAngle + endAngle) / 2;
+                const archR = radius + 70;
+
+                return h('text', {
+                  key: gName,
+                  x: center + archR * Math.cos(midAngle),
+                  y: center + archR * Math.sin(midAngle),
+                  textAnchor: "middle",
+                  className: `text-[11px] font-bold uppercase tracking-[0.4em] ${gName === '収益性' ? 'fill-cyan-400' : (gName === '安全性' ? 'fill-fuchsia-400' : 'fill-amber-400')}`
+                }, gName);
+              }),
+
+              // Polygons
+              h(motion.path, { d: benchPath, fill: "rgba(217, 70, 239, 0.1)", stroke: "#d946ef", strokeWidth: "1.5", strokeDasharray: "4 2", initial: { opacity: 0 }, animate: { opacity: 0.8 } }),
+              h(motion.path, { d: selfPath, fill: "rgba(6, 182, 212, 0.2)", stroke: "#06b6d4", strokeWidth: "3", initial: { opacity: 0 }, animate: { opacity: 1, filter: "drop-shadow(0 0 15px rgba(6,182,212,0.5))" } }),
+              // Phase 7: Case Comparison Polygon (Amber)
+              casePath && h(motion.path, {
+                key: activeComparisonId,
+                d: casePath,
+                fill: "rgba(251, 191, 36, 0.1)",
+                stroke: "#fbbf24",
+                strokeWidth: "2",
+                strokeDasharray: "2 4",
+                initial: { opacity: 0, d: casePath },
+                animate: { opacity: 0.9, d: casePath, filter: "drop-shadow(0 0 12px rgba(251,191,36,0.4))" },
+                exit: { opacity: 0 },
+                transition: { type: 'spring', stiffness: 100, damping: 20, duration: 0.8 }
+              })
+            ])
+          ]),
+
+          // Lower: Grouped Sections
+          ['収益性', '効率性', '安全性'].map(gName => h('div', { key: gName, className: "flex flex-col gap-6" }, [
+            h('div', { className: "flex items-center gap-4 text-left" }, [
+              h('div', { className: `w-1 h-6 ${gName === '収益性' ? 'bg-cyan-500' : (gName === '安全性' ? 'bg-fuchsia-500' : 'bg-amber-500')} rounded-full` }),
+              h('h3', { className: "text-lg font-bold text-slate-100 uppercase tracking-widest" }, gName)
+            ]),
+            h('div', { className: "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6" }, RADAR_CONFIG.filter(m => m.group === gName).map(m => h('div', {
+              key: m.key,
+              onClick: () => setSelectedMetric(m),
+              className: `${THEME.panelItem} flex-col items-start gap-3 bg-slate-900/60 border-white/5 group hover:border-cyan-500/30 transition-all cursor-pointer`
+            }, [
+              h('div', { className: "flex justify-between w-full" }, [
+                h('span', { className: THEME.labelSub }, m.label),
+                h('span', { className: "text-[9px] text-cyan-500 font-mono opacity-40" }, m.formula)
+              ]),
+              h('div', { className: "flex items-baseline gap-2" }, [
+                h('span', { className: m.group === '収益性' ? THEME.numCyan : (m.group === '安全性' ? THEME.numFuchsia : 'text-amber-400 font-mono font-bold text-2xl') }, metrics[m.key]?.toFixed(1) ?? '0.0'),
+                h('span', { className: "text-[10px] text-slate-500 font-bold" }, m.unit)
+              ]),
+              h('div', { className: "w-full bg-slate-950/50 rounded-lg p-2 mt-1" }, [
+                h('p', { className: "text-[10px] leading-relaxed text-slate-400 italic" }, m.comment(metrics[m.key] || 0))
+              ])
+            ])))
+          ]))
+        ]),
+
+        // Metric Insight Modal
+        h(AnimatePresence, null, selectedMetric && h(motion.div, {
+          initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 },
+          className: "fixed inset-0 z-[1000] flex items-center justify-center p-8 bg-slate-950/80 backdrop-blur-xl",
+          onClick: () => setSelectedMetric(null)
+        }, [
+          h(motion.div, {
+            initial: { scale: 0.9, opacity: 0, y: 40 },
+            animate: { scale: 1, opacity: 1, y: 0 },
+            exit: { scale: 0.9, opacity: 0, y: 40 },
+            transition: { type: 'spring', damping: 25, stiffness: 300 },
+            onClick: e => e.stopPropagation(),
+            className: "w-full max-w-2xl bg-slate-900 border border-white/10 rounded-[3rem] p-12 shadow-2xl relative overflow-hidden"
+          }, [
+            h('div', { className: `absolute top-0 left-0 w-full h-2 ${selectedMetric.group === '収益性' ? 'bg-cyan-500' : (selectedMetric.group === '安全性' ? 'bg-fuchsia-500' : 'bg-amber-500')}` }),
+            h('button', { onClick: () => setSelectedMetric(null), className: "absolute top-8 right-8 text-slate-500 hover:text-white transition-colors" }, "✕"),
+
+            h('div', { className: "flex flex-col gap-10" }, [
+              h('div', { className: "flex flex-col gap-2 text-left" }, [
+                h('span', { className: `${THEME.labelSub} ${selectedMetric.theme}` }, selectedMetric.group),
+                h('h2', { className: "text-3xl font-bold text-slate-100 flex items-center gap-4" }, [
+                  selectedMetric.label,
+                  h('span', { className: "text-base font-mono text-slate-500 opacity-60" }, `[ ${selectedMetric.short} ]`)
+                ])
+              ]),
+
+              h('div', { className: `grid ${comparisonSnap ? 'grid-cols-3' : 'grid-cols-2'} gap-6` }, [
+                h('div', { className: "p-8 rounded-3xl bg-slate-950/50 border border-white/5 flex flex-col gap-2 text-left" }, [
+                  h('span', { className: "text-[10px] text-slate-500 uppercase tracking-widest font-bold" }, "Current Score"),
+                  h('div', { className: "flex items-baseline gap-2" }, [
+                    h('span', { className: `text-4xl font-mono font-bold ${selectedMetric.theme}` }, metrics[selectedMetric.key]?.toFixed(1) ?? '0.0'),
+                    h('span', { className: "text-xs text-slate-500" }, selectedMetric.unit)
+                  ])
+                ]),
+                h('div', { className: "p-8 rounded-3xl bg-slate-950/50 border border-white/5 flex flex-col gap-2 text-left" }, [
+                  h('span', { className: "text-[10px] text-slate-500 uppercase tracking-widest font-bold" }, `Benchmark (${benchmark.name})`),
+                  h('div', { className: "flex items-baseline gap-2" }, [
+                    h('span', { className: "text-4xl font-mono font-bold text-slate-100" }, benchmark.metrics[selectedMetric.key]?.toFixed(1) ?? '0.0'),
+                    h('span', { className: "text-xs text-slate-500" }, selectedMetric.unit)
+                  ])
+                ]),
+                comparisonSnap && h(motion.div, {
+                  initial: { opacity: 0, scale: 0.9 },
+                  animate: { opacity: 1, scale: 1 },
+                  transition: { type: 'spring', damping: 25, stiffness: 300 },
+                  className: "p-8 rounded-3xl bg-amber-500/5 border border-amber-500/20 flex flex-col gap-2 text-left"
+                }, [
+                  h('span', { className: "text-[10px] text-amber-400 uppercase tracking-widest font-bold" }, `Case (${comparisonStory?.title ?? '—'})`),
+                  h('div', { className: "flex items-baseline gap-2" }, [
+                    h('span', { className: "text-4xl font-mono font-bold text-amber-400" }, comparisonSnap[selectedMetric.key]?.toFixed(1) ?? '—'),
+                    h('span', { className: "text-xs text-slate-500" }, selectedMetric.unit)
+                  ])
+                ])
+              ]),
+
+              h('div', { className: "flex flex-col gap-4 text-left" }, [
+                h('span', { className: "text-[10px] text-slate-500 uppercase tracking-[0.3em] font-bold" }, "Calculation Formula"),
+                h('div', { className: "p-6 rounded-2xl bg-black/40 border border-white/5 font-mono text-sm text-cyan-400 flex justify-center italic" }, selectedMetric.formula)
+              ]),
+
+              h('div', { className: "flex flex-col gap-4 text-left" }, [
+                h('span', { className: "text-[10px] text-slate-500 uppercase tracking-[0.3em] font-bold" }, "Insight Diagnosis"),
+                h('p', { className: "text-lg text-slate-300 leading-relaxed font-sans italic" }, selectedMetric.comment(metrics[selectedMetric.key] || 0))
+              ])
+            ])
+          ])
+        ]))
+      ]);
+    }
+
+    const WaterfallTier = ({ label, labelJp, amount, prevAmount, type = 'subtotal', delay = 0, maxVal = 1, isFinal = false }) => {
+      const isAbyssal = label === 'NET INCOME' && amount < 0;
+      const width = (Math.abs(amount) / (maxVal || 1)) * 100;
+      const prevWidth = (Math.abs(prevAmount || 0) / (maxVal || 1)) * 100;
+
+      let barStyle = {};
+      const isExpense = type === 'erosion';
+      const isExpansion = type === 'expansion';
+      const isNegative = amount < 0;
+
+      if (isExpense) {
+        barStyle = { right: `${100 - prevWidth}%`, left: 'auto', width: `${width}%`, origin: 'right' };
+      } else if (isExpansion) {
+        barStyle = { left: `${prevWidth}%`, right: 'auto', width: `${width}%`, origin: 'left' };
+      } else {
+        if (isNegative) {
+          barStyle = { right: '100%', left: 'auto', width: `${width}%`, origin: 'right' };
+        } else {
+          barStyle = { left: 0, right: 'auto', width: `${width}%`, origin: 'left' };
+        }
+      }
+
+      return h(motion.div, {
+        initial: { opacity: 0, x: -20 }, animate: { opacity: 1, x: 0 }, transition: { delay, duration: 0.8 },
+        className: `w-full max-w-[80vw] ${isFinal ? 'mt-12 mb-20' : 'mb-8'} group relative text-left mx-auto`
+      }, [
+        h('div', { className: "flex justify-between items-end mb-2 px-1" }, [
+          h('div', { className: "flex flex-col" }, [
+            h('span', { className: `text-[10px] font-bold uppercase tracking-[0.3em] ${isFinal ? 'text-fuchsia-400 text-xs' : (isAbyssal ? 'text-red-400' : (type === 'subtotal' ? 'text-cyan-400' : 'text-slate-400'))}` }, isFinal ? `✧ ${label} ✧` : label),
+            h('span', { className: "text-[9px] text-slate-500 uppercase tracking-widest italic" }, labelJp),
+          ]),
+          h('span', { className: `font-mono font-bold ${isFinal ? 'text-4xl text-fuchsia-100 drop-shadow-[0_0_15px_rgba(217,70,239,0.5)]' : (isAbyssal ? 'text-red-400 animate-pulse' : 'text-white text-xl')}` }, `¥ ${Math.round(amount).toLocaleString()}`)
+        ]),
+        h('div', { className: `${isFinal ? 'h-10' : 'h-6'} w-full bg-slate-900/60 rounded-full relative border ${isFinal ? 'border-fuchsia-500/30' : 'border-white/10'} shadow-[inset_0_2px_10px_rgba(0,0,0,0.5)]` }, [
+          h(motion.div, {
+            initial: { width: 0 },
+            animate: { width: barStyle.width },
+            transition: { type: "spring", stiffness: 40, damping: 12, delay: delay * 0.3 },
+            layout: true,
+            style: {
+              position: 'absolute',
+              left: barStyle.left,
+              right: barStyle.right,
+              transformOrigin: barStyle.origin
+            },
+            className: `h-full rounded-full relative ${isAbyssal || isNegative ? 'bg-gradient-to-r from-red-800 via-red-500 to-red-800' : (isFinal ? 'bg-gradient-to-r from-fuchsia-700 via-fuchsia-400 to-fuchsia-700' : (isExpense ? 'bg-gradient-to-l from-fuchsia-600 via-pink-400 to-fuchsia-600' : 'bg-gradient-to-r from-cyan-600 via-cyan-400 to-cyan-600'))} bg-[length:200%_100%] ${isExpense || (isNegative && !isExpense) ? 'animate-shimmer-rev' : 'animate-shimmer'}`
+          }, [
+            h('div', { className: `absolute inset-0 ${isFinal ? 'bg-fuchsia-400/20' : 'bg-white/10'} opacity-20 mix-blend-overlay animate-pulse` }),
+            h(motion.div, {
+              initial: { opacity: 0 }, animate: { opacity: [0, 0.4, 0] },
+              transition: { repeat: Infinity, duration: 2 },
+              className: `absolute inset-0 bg-gradient-to-t ${isFinal ? 'from-fuchsia-300/30' : 'from-white/20'} to-transparent`
+            })
+          ])
+        ])
+      ]);
+    };
+
+    function WaterfallView() {
+      const { metrics, setActiveModule } = useLuminousStore();
+      const maxVal = Math.max(metrics?.sales || 0, 1);
+      return h(ViewShell, { className: "flex flex-col w-full !max-w-none" }, [
+        h(WaterfallTier, { label: "Source Revenue", labelJp: "源泉売上高", amount: metrics?.sales || 0, maxVal, delay: 0.1 }),
+        (metrics?.cogs || 0) > 0 && h(WaterfallTier, { type: 'erosion', label: "Cost of Sales", labelJp: "売上原価", amount: metrics?.cogs || 0, prevAmount: metrics?.sales || 0, maxVal, delay: 0.3 }),
+        h(WaterfallTier, { label: "Gross Profit", labelJp: "売上総利益", amount: metrics?.grossProfit || 0, maxVal, delay: 0.5 }),
+        (metrics?.sga || 0) > 0 && h(WaterfallTier, { type: 'erosion', label: "SGA Expenses", labelJp: "販売費及び一般管理費", amount: metrics?.sga || 0, prevAmount: metrics?.grossProfit || 0, maxVal, delay: 0.7 }),
+        h(WaterfallTier, { label: "Operating Profit", labelJp: "営業利益", amount: metrics?.operatingProfit || 0, maxVal, delay: 0.9 }),
+        (metrics?.nonOpInc || 0) > 0 && h(WaterfallTier, { type: 'expansion', label: "Non-Op Income", labelJp: "営業外収益", amount: metrics?.nonOpInc || 0, prevAmount: metrics?.operatingProfit || 0, maxVal, delay: 1.1 }),
+        (metrics?.nonOpExp || 0) > 0 && h(WaterfallTier, { type: 'erosion', label: "Non-Op Expenses", labelJp: "営業外費用", amount: metrics?.nonOpExp || 0, prevAmount: (metrics?.operatingProfit || 0) + (metrics?.nonOpInc || 0), maxVal, delay: 1.3 }),
+        h(WaterfallTier, { label: "Ordinary Profit", labelJp: "経常利益", amount: metrics?.ordinaryProfit || 0, maxVal, delay: 1.5 }),
+        (metrics?.extraInc || 0) > 0 && h(WaterfallTier, { type: 'expansion', label: "Extraordinary Income", labelJp: "特別利益", amount: metrics?.extraInc || 0, prevAmount: metrics?.ordinaryProfit || 0, maxVal, delay: 1.7 }),
+        (metrics?.extraLoss || 0) > 0 && h(WaterfallTier, { type: 'erosion', label: "Extraordinary Loss", labelJp: "特別損失", amount: metrics?.extraLoss || 0, prevAmount: (metrics?.ordinaryProfit || 0) + (metrics?.extraInc || 0), maxVal, delay: 1.9 }),
+        h(WaterfallTier, { label: "NET INCOME BEFORE TAX", labelJp: "税引前当期純利益", amount: metrics?.netIncomeBeforeTax || 0, maxVal, delay: 2.1 }),
+        (metrics?.tax || 0) > 0 && h(WaterfallTier, { type: 'erosion', label: "Income Taxes", labelJp: "法人税等", amount: metrics?.tax || 0, prevAmount: metrics?.netIncomeBeforeTax || 0, maxVal, delay: 2.3 }),
+        h('div', { onClick: () => useLuminousStore.getState().setActiveModule('journal'), className: "cursor-pointer w-full flex flex-col items-center mt-4 group" }, [
+          h(WaterfallTier, { label: "NET INCOME", labelJp: "結晶：当期純利益", amount: metrics?.netIncome || 0, maxVal, delay: 2.5, isFinal: true }),
+          h(motion.span, { animate: { opacity: [0.3, 0.6, 0.3] }, transition: { repeat: Infinity, duration: 2 }, className: "text-[9px] text-cyan-500/50 uppercase tracking-[0.4em] mt-[-3rem] mb-20 group-hover:text-cyan-400 transition-colors" }, "✦ Click to Execute Settlement Action")
+        ])
+      ]);
+    }
+
+    const AdjustmentFilter = ({ label, amount, type, delay, breakdown = [] }) => {
+      const displaySign = type === 'plus' ? '+' : '-';
+      const colorClass = type === 'plus' ? 'text-cyan-400' : 'text-red-400';
+      const [isHovered, setIsHovered] = useState(false);
+
+      return h(motion.div, {
+        initial: { opacity: 0, x: -20 }, animate: { opacity: 1, x: 0 }, transition: { delay, duration: 0.8 },
+        onMouseEnter: () => setIsHovered(true), onMouseLeave: () => setIsHovered(false),
+        className: "w-full max-w-2xl glass rounded-2xl p-4 mb-4 flex items-center justify-between border-l-4 border-slate-700/50 hover:border-white/20 transition-all group relative text-left"
+      }, [
+        h('div', { className: "flex items-center gap-4" }, [
+          h('span', { className: `font-mono font-bold text-xl ${colorClass} w-12 text-center group-hover:scale-125 transition-transform` }, `[${displaySign}]`),
+          h('div', { className: "flex flex-col" }, [
+            h('span', { className: "text-[10px] text-slate-500 uppercase tracking-widest font-bold" }, "Adjustment Layer"),
+            h('span', { className: "text-sm font-bold text-slate-200 uppercase" }, label)
+          ])
+        ]),
+        h('div', { className: "flex flex-col items-end" }, [
+          h('span', { className: "text-[10px] text-slate-500 font-mono" }, "FLOW DELTA"),
+          h('span', { className: `font-mono font-bold ${colorClass}` }, `¥ ${Math.abs(amount).toLocaleString()}`)
+        ]),
+        h(AnimatePresence, null, isHovered && breakdown.length > 0 && h(motion.div, {
+          initial: { opacity: 0, y: 10, scale: 0.95 }, animate: { opacity: 1, y: 0, scale: 1 }, exit: { opacity: 0, scale: 0.95 },
+          className: "absolute z-[150] left-1/2 -top-2 -translate-x-1/2 -translate-y-full px-4 py-3 glass rounded-xl border border-cyan-500/30 shadow-[0_0_30px_rgba(6,182,212,0.3)] min-w-[240px] pointer-events-none"
+        }, [
+          h('span', { className: "text-[10px] text-cyan-400 font-bold uppercase tracking-widest block mb-2 border-b border-white/10 pb-1" }, "Insight Breakdown"),
+          h('div', { className: "flex flex-col gap-1.5" }, [
+            breakdown.map((item, idx) => h('div', { key: idx, className: "flex justify-between items-center gap-4" }, [
+              h('span', { className: "text-[10px] text-slate-300 truncate max-w-[120px]" }, item.name),
+              h('span', { className: "text-[10px] font-mono text-slate-400" }, `¥${item.balance.toLocaleString()}`)
+            ])),
+            h('div', { className: "border-t border-white/5 mt-1 pt-1 flex justify-between items-center" }, [
+              h('span', { className: "text-[9px] text-slate-500 font-bold uppercase tracking-tighter" }, "Total Flow"),
+              h('span', { className: `text-[10px] font-mono font-bold ${colorClass}` }, `¥${amount.toLocaleString()}`)
+            ])
+          ])
+        ]))
+      ]);
+    };
+
+    const SectionHeader = ({ title, sub }) => h('div', { className: "w-full max-w-2xl px-4 mb-4 mt-12 first:mt-4 flex flex-col items-start border-l-2 border-cyan-500/30 pl-6 self-center text-left" }, [
+      h('span', { className: "text-[10px] text-cyan-400 font-bold uppercase tracking-widest" }, sub),
+      h('span', { className: "text-sm font-bold text-slate-400 uppercase" }, title)
+    ]);
+
+    const DirectPipe = ({ label, amount, type, delay, breakdown = [] }) => {
+      const isOutflow = type === 'minus';
+      const colorClass = isOutflow ? 'text-red-400' : 'text-cyan-400';
+      const glowClass = isOutflow ? 'shadow-[0_0_20px_rgba(239,68,68,0.2)]' : 'shadow-[0_0_20px_rgba(6,182,212,0.2)]';
+      const [isHovered, setIsHovered] = useState(false);
+
+      return h(motion.div, {
+        initial: { opacity: 0, scale: 0.95 }, animate: { opacity: 1, scale: 1 }, transition: { delay, duration: 0.8 },
+        onMouseEnter: () => setIsHovered(true), onMouseLeave: () => setIsHovered(false),
+        className: `w-full max-w-2xl glass rounded-3xl p-6 mb-6 flex flex-col relative border-t border-white/5 transition-all group ${glowClass} text-left`
+      }, [
+        h('div', { className: "flex justify-between items-center mb-4" }, [
+          h('div', { className: "flex flex-col" }, [
+            h('span', { className: `text-[10px] uppercase font-bold tracking-[0.3em] ${colorClass}` }, isOutflow ? 'Energy Drain' : 'Energy Inflow'),
+            h('span', { className: "text-lg font-bold text-slate-100 uppercase tracking-tight" }, label)
+          ]),
+          h('div', { className: "flex flex-col items-end" }, [
+            h('span', { className: "text-[10px] text-slate-500 font-mono tracking-widest uppercase italic" }, "Quantified Flow"),
+            h('span', { className: `text-2xl font-mono font-bold ${colorClass}` }, `¥ ${Math.abs(amount).toLocaleString()}`)
+          ])
+        ]),
+        h('div', { className: "w-full h-1.5 bg-slate-950 rounded-full overflow-hidden relative border border-white/5" }, [
+          h(motion.div, {
+            initial: { x: '-100%' }, animate: { x: '100%' }, transition: { repeat: Infinity, duration: 2, ease: "linear" },
+            className: `absolute top-0 bottom-0 w-1/3 bg-gradient-to-r ${isOutflow ? 'from-transparent via-red-500 to-transparent' : 'from-transparent via-cyan-400 to-transparent'}`
+          })
+        ]),
+        h(AnimatePresence, null, isHovered && breakdown.length > 0 && h(motion.div, {
+          initial: { opacity: 0, y: 10, scale: 0.95 }, animate: { opacity: 1, y: 0, scale: 1 }, exit: { opacity: 0, scale: 0.95 },
+          className: "absolute z-[150] left-1/2 -top-2 -translate-x-1/2 -translate-y-full px-4 py-3 glass rounded-xl border border-white/10 shadow-2xl min-w-[240px] pointer-events-none"
+        }, [
+          h('span', { className: `text-[10px] font-bold uppercase tracking-widest block mb-2 border-b border-white/10 pb-1 ${colorClass}` }, "Alchemy Breakdown"),
+          h('div', { className: "flex flex-col gap-1.5" }, [
+            breakdown.map((item, idx) => h('div', { key: idx, className: "flex justify-between items-center gap-4" }, [
+              h('span', { className: "text-[10px] text-slate-300 truncate max-w-[120px]" }, item.name),
+              h('span', { className: "text-[10px] font-mono text-slate-400" }, `¥${item.balance.toLocaleString()}`)
+            ])),
+            h('div', { className: "border-t border-white/5 mt-1 pt-1 flex justify-between items-center" }, [
+              h('span', { className: "text-[9px] text-slate-500 font-bold uppercase tracking-tighter" }, "Total Flow"),
+              h('span', { className: `text-[10px] font-mono font-bold ${colorClass}` }, `¥${amount.toLocaleString()}`)
+            ])
+          ])
+        ]))
+      ]);
+    };
+
+    function MatrixView() {
+      const { metrics, viewData } = useLuminousStore();
+      const [cfMode, setCfMode] = useState('indirect');
+
+      const cfData = viewData?.matrix?.cfData || { nonCash: [], wc: [], nonOp: [], direct: [] };
+
+      return h(ViewShell, null, [
+        h('div', { className: "flex flex-col items-center" }, [
+          h('div', { className: "flex gap-6 mb-12 bg-slate-900/60 p-2.5 rounded-2xl border border-white/10 backdrop-blur-md" }, [
+            h('button', { onClick: () => setCfMode('indirect'), className: `px-8 py-3 rounded-xl text-[10px] font-bold uppercase transition-all ${cfMode === 'indirect' ? 'bg-fuchsia-500/20 text-fuchsia-400 border border-fuchsia-500/40 shadow-lg' : 'text-slate-500 hover:text-slate-300'}` }, "Indirect Method"),
+            h('button', { onClick: () => setCfMode('direct'), className: `px-8 py-3 rounded-xl text-[10px] font-bold uppercase transition-all ${cfMode === 'direct' ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40 shadow-lg' : 'text-slate-500 hover:text-slate-300'}` }, "Direct Method")
+          ]),
+
+          cfMode === 'indirect' ? h(motion.div, { key: "indirect", initial: { opacity: 0, x: -20 }, animate: { opacity: 1, x: 0 }, className: "w-full flex flex-col items-center" }, [
+            h(motion.div, { initial: { opacity: 0, y: -20 }, animate: { opacity: 1, y: 0 }, className: `w-full max-w-sm ${THEME.panel} border-t-2 border-fuchsia-500/50 relative overflow-hidden flex flex-col items-center mb-12` }, [
+              h('div', { className: "absolute inset-0 bg-fuchsia-400/5 pointer-events-none" }),
+              h('span', { className: "text-[10px] text-fuchsia-400 font-bold uppercase tracking-[0.4em] mb-2" }, "利益の中枢 (The Core)"),
+              h('span', { className: "text-[10px] text-slate-200 font-bold uppercase tracking-widest" }, "税引前当期純利益"),
+              h('div', { className: "flex flex-col items-center mt-4" }, [h('span', { className: "text-3xl font-mono font-bold text-fuchsia-100" }, `¥ ${(metrics?.netIncomeBeforeTax || 0).toLocaleString()}`)])
+            ]),
+            h('svg', { className: "w-px h-12 mb-8 self-center" }, h('line', { x1: "0", y1: "0", x2: "0", y2: "48", stroke: "#c084fc", strokeWidth: "2", strokeDasharray: "4 4" })),
+            h(SectionHeader, { title: "非資金項目の調整", sub: "NON-CASH ADJUSTMENTS" }),
+            h('div', { className: "w-full flex flex-col items-center mb-8" }, cfData.nonCash.filter(adj => adj.amount !== 0).map((adj, i) => h(AdjustmentFilter, { key: adj.label, ...adj, delay: 0.2 + (i * 0.1) }))),
+            h(SectionHeader, { title: "運転資本の調整", sub: "WORKING CAPITAL ADJUSTMENTS" }),
+            h('div', { className: "w-full flex flex-col items-center mb-8" }, cfData.wc.filter(adj => adj.amount !== 0).map((adj, i) => h(AdjustmentFilter, { key: adj.label, ...adj, delay: 0.4 + (i * 0.1) }))),
+            h(SectionHeader, { title: "営業活動以外の損益の排除", sub: "NON-OPERATING ADJUSTMENTS" }),
+            h('div', { className: "w-full flex flex-col items-center mb-8" }, cfData.nonOp.map((adj, i) => h(AdjustmentFilter, { key: adj.label, ...adj, delay: 0.6 + (i * 0.1) }))),
+            h('div', { className: "w-full max-w-2xl mt-8 mb-12 px-8 py-4 glass rounded-2xl flex justify-between items-center border border-white/5 opacity-80 self-center" }, [
+              h('span', { className: "text-[10px] text-slate-500 font-bold uppercase tracking-widest" }, "調整額合計 (TOTAL ADJUSTMENT)"),
+              h('span', { className: "text-xl font-mono font-bold text-slate-300" }, `¥ ${((metrics?.operatingCF || 0) - (metrics?.netIncome || 0) + (metrics?.tax || 0)).toLocaleString()}`)
+            ])
+          ]) : h(motion.div, { key: "direct", initial: { opacity: 0, x: 20 }, animate: { opacity: 1, x: 0 }, className: "w-full flex flex-col items-center mb-12" }, [
+            h(SectionHeader, { title: "主要な営業活動による収支", sub: "DIRECT OPERATING FLOW" }),
+            h('div', { className: "w-full flex flex-col items-center" }, cfData.direct.filter(pipe => pipe.amount !== 0).map((pipe, i) => h(DirectPipe, { key: pipe.label, ...pipe, delay: 0.2 + (i * 0.1) })))
+          ]),
+
+          h('svg', { className: "w-px h-12 mb-8 self-center" }, h('line', { x1: "0", y1: "0", x2: "0", y2: "48", stroke: "#22d3ee", strokeWidth: "2", strokeDasharray: "4 4" })),
+          h(motion.div, { whileHover: { scale: 1.02 }, className: `w-full max-w-2xl mb-12 ${THEME.panelCyan} flex justify-between items-center self-center` }, [
+            h('div', { className: "flex flex-col text-left" }, [h('span', { className: "text-[10px] text-cyan-400 font-bold uppercase tracking-widest" }, "小計 (SUBTOTAL)"), h('span', { className: "text-xs text-slate-500 uppercase tracking-tighter" }, "営業活動によるキャッシュ・フロー (中間)")]),
+            h('span', { className: THEME.numCyan }, `¥ ${((metrics?.operatingCF || 0) + (metrics?.tax || 0)).toLocaleString()}`)
+          ]),
+          (metrics?.tax || 0) > 0 && h('div', { className: "w-full flex flex-col items-center self-center" }, [
+            h(AdjustmentFilter, { label: "法人税等の支払額", amount: metrics?.tax || 0, type: "minus", delay: 1.0, breakdown: [{ name: '法人税等', balance: metrics?.tax || 0 }] })
+          ]),
+          h('svg', { className: "w-px h-16 mt-8 mb-8 self-center" }, h('line', { x1: "0", y1: "0", x2: "0", y2: "64", stroke: "#22d3ee", strokeWidth: "2", strokeDasharray: "4 4", className: "matrix-line" })),
+          h(motion.div, {
+            initial: { opacity: 0, scale: 0.9 }, animate: { opacity: 1, scale: 1 }, transition: { delay: 1.2 },
+            className: `w-full max-w-lg min-h-[220px] ${THEME.panelCyan} rounded-[3rem] p-10 border-2 border-cyan-500 shadow-[0_0_60px_rgba(6,182,212,0.3)] relative overflow-hidden flex flex-col items-center justify-center pulse-liquid self-center`
+          }, [
+            h('div', { className: "absolute inset-0 bg-cyan-400/5 pointer-events-none" }),
+            h('span', { className: "text-xs text-cyan-400 font-bold uppercase tracking-[0.5em] mb-4" }, "営業活動によるキャッシュ・フロー"),
+            h('span', { className: "text-[10px] text-slate-500 uppercase tracking-widest mb-8 italic" }, "最終出力 (The Output)"),
+            h('span', { className: "text-5xl font-mono font-bold text-white tracking-tighter" }, `¥ ${(metrics?.operatingCF || 0).toLocaleString()}`)
+          ])
+        ]),
+
+        h('div', { className: "fixed inset-0 pointer-events-none -z-10 opacity-10" }, [
+          h('div', { className: "absolute inset-0", style: { backgroundImage: 'linear-gradient(#22d3ee 1px, transparent 1px), linear-gradient(90deg, #22d3ee 1px, transparent 1px)', backgroundSize: '80px 80px' } })
+        ])
+      ]);
+    }
+
+    function HomeView() {
+      const setActiveModule = useLuminousStore(s => s.setActiveModule);
+      const modules = [
+        { id: 'journal', label: 'Journal', icon: '📜', color: 'border-fuchsia-500/30 text-fuchsia-400' },
+        { id: 'scale', label: 'Scale', icon: '⚖️', color: 'border-cyan-500/30 text-cyan-400' },
+        { id: 'waterfall', label: 'Waterfall', icon: '🌊', color: 'border-cyan-500/30 text-cyan-400' },
+        { id: 'matrix', label: 'Matrix', icon: '🔗', color: 'border-cyan-500/30 text-cyan-400' },
+        { id: 'prism', label: 'Prism', icon: '💎', color: 'border-fuchsia-500/30 text-fuchsia-400' }
+      ];
+
+      const particles = Array.from({ length: 20 }).map((_, i) => ({
+        id: i,
+        left: `${Math.random() * 100}%`,
+        top: `${Math.random() * 100}%`,
+        size: Math.random() * 4 + 2,
+        delay: Math.random() * 10
+      }));
+
+      return h('div', { className: "relative min-h-screen flex flex-col items-center overflow-y-auto bg-slate-950 scroll-smooth" }, [
+        h('div', { className: "hub-aura" }, [
+          particles.map(p => h('div', { key: p.id, className: "hub-particle", style: { left: p.left, top: p.top, width: `${p.size}px`, height: `${p.size}px`, animationDelay: `${p.delay}s` } }))
+        ]),
+
+        h('div', { className: "relative z-10 flex flex-col items-center gap-24 py-32 w-full min-h-screen" }, [
+          h(motion.div, { initial: { opacity: 0, y: -40 }, animate: { opacity: 1, y: 0 }, className: "text-center" }, [
+            h('h1', { className: THEME.h1 + " text-8xl tracking-tighter drop-shadow-[0_0_50px_rgba(34,211,238,0.3)]" }, "Luminous Insight"),
+            h('div', { className: "w-32 h-1 bg-gradient-to-r from-transparent via-cyan-400 to-transparent mx-auto mt-8 rounded-full opacity-50" })
+          ]),
+
+          h('div', { className: "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-10 w-full max-w-7xl px-8" }, modules.map((m, i) => h(motion.div, {
+            key: m.id,
+            initial: { opacity: 0, y: 30 },
+            animate: { opacity: 1, y: 0 },
+            transition: { delay: 0.2 + i * 0.1 },
+            whileHover: { y: -15, borderColor: 'rgba(255,255,255,0.3)', scale: 1.02 },
+            onClick: () => setActiveModule(m.id),
+            className: `relative group p-12 rounded-[3.5rem] bg-slate-900/40 border ${m.color} flex flex-col items-center justify-center gap-8 cursor-pointer backdrop-blur-xl transition-all h-[320px] shadow-[0_30px_60px_rgba(0,0,0,0.5)]`
+          }, [
+            h('span', { className: "text-7xl group-hover:scale-110 transition-transform duration-700 ease-out" }, m.icon),
+            h('span', { className: "text-2xl font-bold text-white tracking-tight opacity-80 group-hover:opacity-100 transition-opacity" }, m.label),
+            h('button', {
+              title: "別ウィンドウで開く",
+              onClick: (e) => { e.stopPropagation(); window.open(`?m=${m.id}`, '_blank', 'width=1400,height=900'); },
+              className: "absolute top-10 right-10 p-3.5 bg-white/5 rounded-2xl text-slate-500 group-hover:text-white group-hover:bg-white/10 transition-all z-10 border border-white/5 shadow-inner cursor-pointer"
+            }, "↗️")
+          ])))
+        ])
+      ]);
+    }
+
+    function App() {
+      const { activeModule, events, hasHydrated, setHasHydrated } = useLuminousStore();
+      const [flash, setFlash] = useState(false);
+      const [isClosing, setIsClosing] = useState(false);
+      const prevLen = useRef(events?.length || 0);
+
+      useEffect(() => { setTimeout(() => setHasHydrated(true), 1500); }, []);
+      useEffect(() => {
+        if (!hasHydrated || !events) return;
+        if (events.length > prevLen.current) {
+          const last = events[events.length - 1];
+          if (last.description && last.description.includes('CLOSE')) { setIsClosing(true); setTimeout(() => setIsClosing(false), 2000); }
+          else { setFlash(true); setTimeout(() => setFlash(false), 1200); }
+        }
+        prevLen.current = events.length;
+      }, [events, hasHydrated]);
+
+      const render = () => {
+        switch (activeModule) {
+          case 'home': return h(HomeView);
+          case 'journal': return h(JournalView);
+          case 'scale': return h(ScaleView);
+          case 'prism': return h(PrismView);
+          case 'waterfall': return h(WaterfallView);
+          case 'matrix': return h(MatrixView);
+          default: return h(HomeView);
+        }
+      };
+
+      if (!hasHydrated) return h('div', { className: "h-screen bg-slate-950 flex items-center justify-center font-mono text-cyan-500 animate-pulse" }, "SYNCHRONIZING...");
+
+      return h('div', { className: `h-screen bg-slate-950 text-slate-200 ${activeModule === 'home' ? 'overflow-y-auto' : 'overflow-hidden'} relative flex flex-col` }, [
+        h('div', { className: "bg-aura" }),
+        h(GlobalNavigation), h(GlobalCommandPalette), h(GlobalToast), h(GlobalQuestHUD), h(GlobalEffects), h(GlobalConfirmation),
+        h(AnimatePresence, null, [
+          flash && h(motion.div, { key: 'f', initial: { opacity: 0.6 }, animate: { opacity: 0 }, className: "fixed inset-0 bg-cyan-400/20 pointer-events-none z-[999]" }),
+          isClosing && h(motion.div, { key: 'c', initial: { opacity: 0 }, animate: { opacity: 0.5 }, exit: { opacity: 0 }, className: "fixed inset-0 bg-fuchsia-600/30 pointer-events-none z-[999]" })
+        ]),
+        h('div', { className: `flex-1 ${activeModule === 'home' ? '' : 'overflow-hidden'} relative` }, [
+          h(AnimatePresence, { mode: 'wait' }, h(motion.div, { key: activeModule, initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 }, className: "w-full h-full" }, render()))
+        ])
+      ]);
+    }
+
+    createRoot(document.getElementById('root')).render(h(App));
+  </script>
+</body>
+
+</html>
